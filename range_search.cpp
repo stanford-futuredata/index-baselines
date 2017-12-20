@@ -324,39 +324,35 @@ int main(int argc, char** argv) {
   std::vector<double> times_h3;
 
   // binary search baseline
+  /*
   rng.seed(seed);
   for (int t = 0; t < num_trials; t++) {
-    /*for (int& key : queries) {
-      key = vec_clone[dist(rng)];
-    }*/
-
     long check = 0;
     auto start = clock();
-    /*for (const int& key : queries) {
+    for (const int& key : queries) {
       volatile int res = binary_search_branchless(data, n, key);
       check += res;
-    }*/
+    }
     double elapsed = double(clock() - start) / CLOCKS_PER_SEC;
 
     times_bs.push_back(elapsed);
     checksums.push_back(check);
   }
-
+  */
+  
   // stx::btree baseline
+  /*
   rng.seed(seed);
   for (int t = 0; t < num_trials; t++) {
-    /*for (int& key : queries) {
-      key = vec_clone[dist(rng)];
-    }*/
-
     auto start = clock();
-    /*for (const int& key : queries) {
+    for (const int& key : queries) {
       volatile auto res = btree.find(key);
-    }*/
+    }
     double elapsed = double(clock() - start) / CLOCKS_PER_SEC;
     times_bt.push_back(elapsed);
   }
-
+  */
+  
   // benchmark 2-level index
   rng.seed(seed);
   for (int t = 0; t < num_trials; t++) {
@@ -403,15 +399,13 @@ int main(int argc, char** argv) {
 //    }
   }
 
-  double time_bs = 1e+9 * std::accumulate(times_bs.begin(), times_bs.end(), 0.) / (num_trials * QUERIES_PER_TRIAL);
-  double time_bt = 1e+9 * std::accumulate(times_bt.begin(), times_bt.end(), 0.) / (num_trials * QUERIES_PER_TRIAL);
-  //double time_h1 = 1e+9 * std::accumulate(times_h1.begin(), times_h1.end(), 0.) / (num_trials * QUERIES_PER_TRIAL);
+  // double time_bs = 1e+9 * std::accumulate(times_bs.begin(), times_bs.end(), 0.) / (num_trials * QUERIES_PER_TRIAL);
+  // double time_bt = 1e+9 * std::accumulate(times_bt.begin(), times_bt.end(), 0.) / (num_trials * QUERIES_PER_TRIAL);
   double time_h2 = 1e+9 * std::accumulate(times_h2.begin(), times_h2.end(), 0.) / (num_trials * QUERIES_PER_TRIAL);
   double time_h3 = 1e+9 * std::accumulate(times_h3.begin(), times_h3.end(), 0.) / (num_trials * QUERIES_PER_TRIAL);
 
-  printf("%8.1lf ns : %.40s\n", time_bs, "binary search");
-  printf("%8.1lf ns : %.40s\n", time_bt, "btree");
-  //printf("%8.1lf ns : %.40s\n", time_h1, "1-level index");
+  // printf("%8.1lf ns : %.40s\n", time_bs, "binary search");
+  // printf("%8.1lf ns : %.40s\n", time_bt, "btree");
   printf("%8.1lf ns : %.40s\n", time_h2, "2-level index");
   printf("%8.1lf ns : %.40s\n", time_h3, "3-level index");
 
