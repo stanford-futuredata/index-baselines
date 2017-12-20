@@ -35,7 +35,7 @@ struct LeafEntry {
 
 void* malloc_huge(size_t size) {
    void* p=mmap(NULL,size,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
-   //madvise(p,size,MADV_HUGEPAGE);
+   madvise(p,size,MADV_HUGEPAGE);
    return p;
 }
 
