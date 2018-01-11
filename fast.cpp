@@ -191,15 +191,15 @@ int main(int argc,char** argv) {
   }
   printf("num elements (padded): %d\n", n);
 
-  LeafEntry* leaves=new LeafEntry[n];
-  for (unsigned i=0;i<n;i++) {
-    leaves[i].value = i;
+  LeafEntry* leaves = new LeafEntry[n];
+  for (unsigned i = 0; i < n; i++) {
     leaves[i].key = keys[i];
+    leaves[i].value = i;
   }
 
-  int32_t* fast=buildFAST(leaves, n);
+  int32_t *fast = buildFAST(leaves, n);
 
-  for (unsigned i=0; i<K; i++)
+  for (unsigned i = 0; i < K; i++)
     scale += pow16(i);
   scale *= 16;
 

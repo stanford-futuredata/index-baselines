@@ -26,14 +26,6 @@
 #define SHUF(i0, i1, i2, i3) (i0 + i1*4 + i2*16 + i3*64)
 #define FORCEINLINE __attribute__((always_inline)) inline
 
-// stx::btree configuration
-class btree_traits : public stx::btree_default_map_traits<int, int> {
- public:
-  static const int leafslots = 64;
-  static const int innerslots = 64;
-  static const size_t binsearch_threshold = 256;
-};
-
 // power of 2 at most x, undefined for x == 0
 FORCEINLINE uint32_t bsr(uint32_t x) {
   return 31 - __builtin_clz(x);
@@ -289,7 +281,7 @@ int main(int argc, char** argv) {
   for (int i = 0; i < n; i++) {
     pairs.emplace_back(keys[i], values[i]);
   }
-  stx::btree_map<int, int, std::less<int>, btree_traits> btree(pairs.begin(), pairs.end());
+  stx::btree_map<int, int> btree(pairs.begin(), pairs.end());
 
   // Construct indexes
   TwoLevelIndex index2(keys, k1, k2);
