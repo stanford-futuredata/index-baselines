@@ -1,6 +1,6 @@
 # Index Baselines
 
-Simple baselines for "Learned Indexes" to complement the blog post.
+Simple baselines for "Learned Indexes" to complement the [blog post](http://dawn.cs.stanford.edu/2018/01/11/index-baselines/).
 
 ## Build
 
