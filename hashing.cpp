@@ -1,7 +1,3 @@
-//
-// Hashing baselines
-//
-
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -186,6 +182,83 @@ private:
   }
 };
 
+// A linked hash map with keys of type uint32_t and values of type V
+template <typename V>
+class LinkedHashMap {
+public:
+  struct SearchResult {
+    bool found;
+    V value;
+  };
+
+private:
+  struct Cell {
+    uint32_t key;
+    V value;
+    Cell *next;
+  };
+
+  uint32_t num_cells_;
+  Cell *cells_;
+  V uninitialized_value_;
+
+public:
+  LinkedHashMap(uint32_t num_cells): num_cells_(num_cells) {
+    cells_ = new Cell[num_cells];
+    for (size_t i = 0; i < num_cells; i++) {
+      cells_[i].key = INVALID_KEY;
+      cells_[i].next = 0;
+    }
+  }
+
+  ~LinkedHashMap() {
+    delete[] cells_;
+  }
+
+  SearchResult get(uint32_t key) {
+    uint32_t i = hash32(key) % num_cells_;
+    //uint32_t i = alt_mod(hash32(key), num_cells_);
+    Cell *cell = &cells_[i];
+    while (true) {
+      if (cell->key == key) {
+        return { true, cell->value };
+      } else if (!cell->next) {
+        return { false, uninitialized_value_ };
+      } else {
+        cell = cell->next;
+      }
+    }
+  }
+
+  void insert(uint32_t key, V value) {
+    uint32_t i = hash32(key) % num_cells_;
+    //uint32_t i = alt_mod(hash32(key), num_cells_);
+    Cell *cell = &cells_[i];
+    if (cell->key == INVALID_KEY) {
+      cell->key = key;
+      cell->value = value;
+      return;
+    } else {
+      while (cell->next) {
+        cell = cell->next;
+      }
+      Cell* new_cell = new Cell;
+      cell->next = new_cell;
+      new_cell->key = key;
+      new_cell->value = value;
+      new_cell->next = 0;
+    }
+  }
+
+  uint32_t filled() {
+    uint32_t res = 0;
+    for (size_t i = 0; i < num_cells_; i++) {
+      res += (cells_[i].key != INVALID_KEY ? 1 : 0);
+    }
+    return res;
+  }
+};
+
 vector<uint32_t> read_keys(const char *path) {
   vector<uint32_t> vec;
   FILE *fin = fopen(path, "rb");
@@ -257,8 +330,31 @@ void benchmark_cuckoo_32(vector<uint32_t>& keys) {
     double(end - start) / CLOCKS_PER_SEC / keys.size() * 1e9, hits);
 }
 
+void benchmark_linked_32(vector<uint32_t>& keys) {
+  printf("Benchmarking LinkedHashMap with 32-bit values\n");
+
+  LinkedHashMap<uint32_t> set(uint32_t(keys.size()));
+  for (uint32_t i = 0; i < keys.size(); i++) {
+    set.insert(keys[i], keys[i]);
+  }
+  printf("Done inserting keys, filled = %u\n", set.filled());
+
+  // Reshuffle the keys so we don't query them in insert order
+  random_shuffle(keys.begin(), keys.end());
+
+  auto start = clock();
+  uint32_t hits = 0;
+  for (uint32_t i = 0; i < keys.size(); i++) {
+    hits += (set.get(keys[i]).value == keys[i]) ? 1 : 0;
+  }
+  auto end = clock();
+  printf("LinkedHashMap average time taken: %lf ns, hits: %u\n",
+    double(end - start) / CLOCKS_PER_SEC / keys.size() * 1e9, hits);
+}
+
 int main(int argc, char **argv) {
   vector<uint32_t> keys = (argc == 2 ? read_keys(argv[1]) : generate_keys());
-  benchmark_cuckoo_no_value(keys);
+  benchmark_linked_32(keys);
   benchmark_cuckoo_32(keys);
+  benchmark_cuckoo_no_value(keys);
 }
