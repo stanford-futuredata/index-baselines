@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <vector>
 #include <random>
+#include <utility>
 
 const unsigned K=3;
 
@@ -35,7 +36,9 @@ struct LeafEntry {
 
 void* malloc_huge(size_t size) {
    void* p=mmap(NULL,size,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+#if __linux__
    madvise(p,size,MADV_HUGEPAGE);
+#endif
    return p;
 }
 
@@ -149,12 +152,6 @@ unsigned search(int32_t v[],int32_t key_q) {
    return (pos<<(K*4))|level_offset;
 }
 
-static double gettime(void) {
-   struct timeval now_tv;
-   gettimeofday (&now_tv,NULL);
-   return ((double)now_tv.tv_sec) + ((double)now_tv.tv_usec)/1000000.0;
-}
-
 
 #define BUF_SIZE 2048
 
@@ -182,50 +179,48 @@ int main(int argc,char** argv) {
     exit(1);
   }
 
-  std::vector<int> vec = read_data(argv[1]);
+  std::vector<int> keys = read_data(argv[1]);
+  printf("num elements: %lu\n", keys.size());
   // Clone vec so we don't bring pages from it into cache when selecting random keys
-  std::vector<int> vec_clone(vec.begin(), vec.end());
+  std::vector<int> keys_clone(keys.begin(), keys.end());
 
-  vec.push_back(INT_MAX);
+  keys.push_back(INT_MAX);
   unsigned n=(1<<(16+(K*4))); // note: padding to power of 2 for FAST
-  for ( unsigned i = vec.size(); i < n; i++ ) {
-    vec.push_back(INT_MAX);
+  for (unsigned i = keys.size(); i < n; i++) {
+    keys.push_back(INT_MAX);
   }
-  const int* keys = &vec[0];
-  printf("num elements: %d\n", n);
+  printf("num elements (padded): %d\n", n);
 
   LeafEntry* leaves=new LeafEntry[n];
   for (unsigned i=0;i<n;i++) {
-    leaves[i].value=keys[i];
-    leaves[i].key=keys[i];
+    leaves[i].value = i;
+    leaves[i].key = keys[i];
   }
 
-  int32_t* fast=buildFAST(leaves,n);
+  int32_t* fast=buildFAST(leaves, n);
 
-  for (unsigned i=0;i<K;i++)
-    scale+=pow16(i);
-  scale*=16;
+  for (unsigned i=0; i<K; i++)
+    scale += pow16(i);
+  scale *= 16;
 
   uint32_t seed = std::random_device()();
   std::mt19937 rng;
-  std::uniform_int_distribution<> dist(0, vec_clone.size()-1);
+  std::uniform_int_distribution<> dist(0, keys_clone.size()-1);
   std::vector<int> queries(QUERIES_PER_TRIAL);
 
   rng.seed(seed);
   for (int &query : queries) {
-    query = vec_clone[dist(rng)];
+    query = keys_clone[dist(rng)];
   }
 
   long check = 0;
   auto start = clock();
   for (const int& key : queries) {
-    int res = search(fast, key);
-    check += res;
+    check += search(fast, key);
   }
   auto end = clock();
   printf("FAST average time taken: %lf ns\n",
     double(end - start) / CLOCKS_PER_SEC / queries.size() * 1e9);
-  printf("%ld\n", check);
-
+  printf("FAST checksum (can be different from other range search baselines) = %ld\n", check);
   return 0;
 }

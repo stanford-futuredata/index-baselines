@@ -1,4 +1,6 @@
 //
+// Range search baselines
+//
 // Linear and binary search code derived from:
 // https://dirtyhandscoding.wordpress.com/2017/08/25/performance-comparison-linear-search-vs-binary-search/
 // https://www.pvk.ca/Blog/2012/07/03/binary-search-star-eliminates-star-branch-mispredictions/
@@ -14,8 +16,9 @@
 #include <iostream>
 #include <numeric>
 #include <random>
+#include <utility>
 #include <immintrin.h>
-#include <stx/btree_set.h>
+#include <stx/btree_map.h>
 
 #define BUF_SIZE 2048
 #define QUERIES_PER_TRIAL (50 * 1000 * 1000)
@@ -23,8 +26,8 @@
 #define SHUF(i0, i1, i2, i3) (i0 + i1*4 + i2*16 + i3*64)
 #define FORCEINLINE __attribute__((always_inline)) inline
 
-// btree configuration
-class btree_traits : public stx::btree_default_set_traits<int> {
+// stx::btree configuration
+class btree_traits : public stx::btree_default_map_traits<int, int> {
  public:
   static const int leafslots = 64;
   static const int innerslots = 64;
@@ -123,35 +126,6 @@ static int linear_search_avx (const int *arr, int n, int key) {
   return _mm_cvtsi128_si32(xcnt);
 }
 
-class OneLevelIndex {
-  const int* data_;
-  int k_, stride_;
-  int* table_;
-
- public:
-  explicit OneLevelIndex(const std::vector<int>& data, int k)
-      : data_(&data[0]), k_(k) {
-    table_ = (int*) calloc((size_t) k_, sizeof(int));
-    stride_ = (int) data.size() / k;
-
-    // populate index
-    for (int i = 0; i < k_; i++) {
-      table_[i] = data[(i + 1) * stride_  - 1];
-    }
-  }
-
-  ~OneLevelIndex() {
-    free(table_);
-  }
-
-  int find(int key) {
-    int i = binary_search_branchless(table_, k_, key);
-    int pos = i * stride_;
-    int offset = binary_search_branchless(data_ + pos, stride_, key);
-    return pos + offset;
-  }
-};
-
 
 class TwoLevelIndex {
   const int* data_;
@@ -172,7 +146,7 @@ class TwoLevelIndex {
     data_ = &data[0];
 
     k1_ = (int) std::ceil(data.size() / double(k2_ * page_size_));
-    std::cerr << k1_ << std::endl;
+    std::cerr << "2-level index top level size = " << k1_ << std::endl;
     tables_ = (int*) calloc((size_t) k1_ * (k2 + 1), sizeof(int));
     k2stride_ = k2 * page_size_;
 
@@ -226,8 +200,7 @@ class ThreeLevelIndex {
     data_ = &data[0];
 
     k1_ = (int) std::ceil(data.size() / double(k2_ * k3_ * page_size_));
-    //k1_ = 2 << bsr((int) std::ceil(data.size() / double(k2_ * k3_ * page_size_)) - 1);
-    std::cerr << k1_ << std::endl;
+    std::cerr << "3-level index top level size = " << k1_ << std::endl;
     tables_ = (int*) calloc((size_t) k1_ * (1 + k2_ * (1 + k3_)), sizeof(int));
     table2_ = tables_ + k1_;
     table3_ = table2_ + k1_ * k2_;
@@ -292,120 +265,129 @@ int main(int argc, char** argv) {
   }
 
   int num_trials = std::atoi(argv[2]);
-  int k1 = std::atoi(argv[3]);
-  int k2 = std::atoi(argv[4]);
-  int k3 = std::atoi(argv[5]);
-  printf("k1: %d, k2: %d, k3: %d\n", k1, k2, k3);
+  int k1 = std::atoi(argv[3]);  // first level size (keys per page)
+  int k2 = std::atoi(argv[4]);  // second level size
+  int k3 = std::atoi(argv[5]);  // third level size
+  printf("index page sizes\tk1: %d, k2: %d, k3: %d\n", k1, k2, k3);
 
-  std::vector<int> vec = read_data(argv[1]);
-  vec.push_back(INT_MAX);
-  const int* data = &vec[0];
-  int n = (int) vec.size();
+  std::vector<int> keys = read_data(argv[1]);
+  keys.push_back(INT_MAX);
+  int n = (int) keys.size();
   printf("num elements: %d\n", n);
   
   // Clone vec so we don't bring pages from it into cache when selecting random keys
-  std::vector<int> vec_clone(vec.begin(), vec.end());
+  std::vector<int> keys_clone(keys.begin(), keys.end());
 
-  // construct indices
-  stx::btree_set<int, std::less<int>, btree_traits> btree(vec.begin(), vec.begin() + n);
-  //OneLevelIndex index1(vec, k1);
-  TwoLevelIndex index2(vec, k1, k2);
-  ThreeLevelIndex index3(vec, k1, k2, k3);
+  // Create vector of values
+  std::vector<int> values;
+  for (int i = 0; i < n; i++) {
+    values.push_back(i);
+  }
+
+  // Construct B-Tree
+  std::vector<std::pair<int, int>> pairs;
+  for (int i = 0; i < n; i++) {
+    pairs.emplace_back(keys[i], values[i]);
+  }
+  stx::btree_map<int, int, std::less<int>, btree_traits> btree(pairs.begin(), pairs.end());
+
+  // Construct indexes
+  TwoLevelIndex index2(keys, k1, k2);
+  ThreeLevelIndex index3(keys, k1, k2, k3);
 
   uint32_t seed = std::random_device()();
   std::mt19937 rng;
   std::uniform_int_distribution<> dist(0, n - 1);
   std::vector<int> queries(QUERIES_PER_TRIAL);
 
-  std::vector<long> checksums;
-  std::vector<double> times_bs;
-  std::vector<double> times_bt;
-  std::vector<double> times_h2;
-  std::vector<double> times_h3;
+  std::vector<double> times_bs;  // binary search
+  std::vector<double> times_bt;  // b-tree
+  std::vector<double> times_h2;  // 2-level index
+  std::vector<double> times_h3;  // 3-level index
 
   // binary search baseline
-  /*
+  printf("Running binary search\n");
   rng.seed(seed);
+  long check_bs = 0;
   for (int t = 0; t < num_trials; t++) {
-    long check = 0;
+    for (int &query : queries) {
+      query = keys_clone[dist(rng)];
+    }
+
     auto start = clock();
     for (const int& key : queries) {
-      volatile int res = binary_search_branchless(data, n, key);
-      check += res;
+      int pos = binary_search_branchless(keys.data(), n, key);
+      check_bs += values[pos];
     }
     double elapsed = double(clock() - start) / CLOCKS_PER_SEC;
-
     times_bs.push_back(elapsed);
-    checksums.push_back(check);
   }
-  */
+  printf("binary search checksum = %ld\n", check_bs);
   
   // stx::btree baseline
-  /*
+  printf("Running stx::btree\n");
   rng.seed(seed);
+  long check_bt = 0;
   for (int t = 0; t < num_trials; t++) {
+    for (int &query : queries) {
+      query = keys_clone[dist(rng)];
+    }
+
     auto start = clock();
     for (const int& key : queries) {
-      volatile auto res = btree.find(key);
+      check_bt += btree[key];
     }
     double elapsed = double(clock() - start) / CLOCKS_PER_SEC;
     times_bt.push_back(elapsed);
   }
-  */
+  printf("stx::btree checksum = %ld\n", check_bt);
   
   // benchmark 2-level index
+  printf("Running 2-level index\n");
   rng.seed(seed);
+  long check_h2 = 0;
   for (int t = 0; t < num_trials; t++) {
     for (int &query : queries) {
-      query = vec_clone[dist(rng)];
+      query = keys_clone[dist(rng)];
     }
 
-    long check = 0;
     auto start = clock();
     for (const int& key : queries) {
-      int res = index2.find(key);
-      check += res;
+      int pos = index2.find(key);
+      check_h2 += values[pos];
     }
     double elapsed = double(clock() - start) / CLOCKS_PER_SEC;
-    if (check % 13337 == 0) printf("%ld\n", check);
-
     times_h2.push_back(elapsed);
-//    if (check != checksums[t]) {
-//      std::cerr << "ERROR: checksum mismatch " << checksums[t] << " vs " << check << std::endl;
-//      exit(1);
-//    }
   }
+  printf("2-level index checksum = %ld\n", check_h2);
 
   // benchmark 3-level index
+  printf("Running 3-level index\n");
   rng.seed(seed);
+  long check_h3 = 0;
   for (int t = 0; t < num_trials; t++) {
     for (int &query : queries) {
-      query = vec_clone[dist(rng)];
+      query = keys_clone[dist(rng)];
     }
 
-    long check = 0;
     auto start = clock();
     for (const int& key : queries) {
-      int res = index3.find(key);
-      check += res;
+      int pos = index3.find(key);
+      check_h3 += values[pos];
     }
     double elapsed = double(clock() - start) / CLOCKS_PER_SEC;
-    if (check % 13337 == 0) printf("%ld\n", check);
-
     times_h3.push_back(elapsed);
-//    if (check != checksums[t]) {
-//      std::cerr << "ERROR: checksum mismatch " << checksums[t] << " vs " << check << std::endl;
-//      exit(1);
-//    }
   }
+  printf("3-level index checksum = %ld\n", check_h3);
 
-  // double time_bs = 1e+9 * std::accumulate(times_bs.begin(), times_bs.end(), 0.) / (num_trials * QUERIES_PER_TRIAL);
-  // double time_bt = 1e+9 * std::accumulate(times_bt.begin(), times_bt.end(), 0.) / (num_trials * QUERIES_PER_TRIAL);
+  double time_bs = 1e+9 * std::accumulate(times_bs.begin(), times_bs.end(), 0.) / (num_trials * QUERIES_PER_TRIAL);
+  double time_bt = 1e+9 * std::accumulate(times_bt.begin(), times_bt.end(), 0.) / (num_trials * QUERIES_PER_TRIAL);
   double time_h2 = 1e+9 * std::accumulate(times_h2.begin(), times_h2.end(), 0.) / (num_trials * QUERIES_PER_TRIAL);
   double time_h3 = 1e+9 * std::accumulate(times_h3.begin(), times_h3.end(), 0.) / (num_trials * QUERIES_PER_TRIAL);
 
-  // printf("%8.1lf ns : %.40s\n", time_bs, "binary search");
-  // printf("%8.1lf ns : %.40s\n", time_bt, "btree");
+  printf("Mean time per query\n");
+  printf("%8.1lf ns : %.40s\n", time_bs, "binary search");
+  printf("%8.1lf ns : %.40s\n", time_bt, "stx::btree");
   printf("%8.1lf ns : %.40s\n", time_h2, "2-level index");
   printf("%8.1lf ns : %.40s\n", time_h3, "3-level index");
 

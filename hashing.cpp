@@ -1,3 +1,7 @@
+//
+// Hashing baselines
+//
+
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
