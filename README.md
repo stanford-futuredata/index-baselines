@@ -16,7 +16,7 @@ The integers are written to the binary file `lognormal.sorted.190M`.
 
 To run our SIMD-enabled bucketized cuckoo hash table hashing baseline:
 
-`run_hashing lognormal.sorted.190M`
+`sh run_hashing.sh lognormal.sorted.190M`
 
 Our implementation uses 32-bit integer keys and values. On an Intel Xeon E5-2690v4 CPU (2.6GHz), our table took 36ns per access while wasting 0.015GB of space (1% of slots).
 
